@@ -1,110 +1,124 @@
 # simpleEFFoam
 
-`simpleEFFoam` は、OpenFOAM の `simpleFoam` をベースにした、電気流体力学
-(Electrohydrodynamics, EHD) 用の定常ソルバーです。
+`simpleEFFoam` is a steady-state OpenFOAM solver for electrohydrodynamic
+(EHD) simulations. It is based on OpenFOAM's `simpleFoam`.
 
-電位、電場、空間電荷密度を解き、空間電荷と電場による体積力を流れ場へ与えることで、
-イオン風などの EHD 現象を再現するために使えます。
+The solver calculates electric potential, electric field, and space charge
+density, then applies the electric body force caused by the space charge and
+electric field to the flow field. It can be used to simulate EHD phenomena such
+as ion wind.
 
-このソルバーは **定常計算専用** です。非定常計算には対応していません。
+This solver supports **steady-state calculations only**. It does not support
+transient simulations.
 
-## 何を計算するソルバーか
+## What This Solver Does
 
-主に次の場を扱います。
+The main fields are:
 
-- `U`: 速度
-- `p`: 動圧を密度で割った圧力
-- `phiE`: 電位
-- `E`: 電場。`E = -grad(phiE)` として計算されます
-- `rho`: 空間電荷密度
+- `U`: velocity
+- `p`: kinematic pressure
+- `phiE`: electric potential
+- `E`: electric field, calculated as `E = -grad(phiE)`
+- `rho`: space charge density
 
-計算ループ内では、おおまかに次を解いています。
+In each solution loop, the solver roughly performs the following steps:
 
-1. Poisson 方程式から電位 `phiE` を求める
-2. 電位勾配から電場 `E` を求める
-3. 電場と空間電荷密度による体積力を含めて、速度・圧力を SIMPLE 法で解く
-4. ドリフトと拡散を含む空間電荷密度 `rho` の保存式を解く
+1. Solve Poisson's equation for the electric potential `phiE`.
+2. Calculate the electric field `E` from the electric potential gradient.
+3. Solve the velocity and pressure fields with the SIMPLE algorithm, including
+   the electric body force from the electric field and space charge density.
+4. Solve the conservation equation for the space charge density `rho`, including
+   drift and diffusion terms.
 
-注意として、`rho` は流体密度ではなく空間電荷密度です。流体密度は
-`constant/physicalProperties` の `rho0` で与えます。
+Note that `rho` is the space charge density, not the fluid density. The fluid
+density is specified as `rho0` in `constant/physicalProperties`.
 
-## 想定環境
+## Requirements
 
-- OpenFOAM v2406、または互換性のある OpenFOAM.com 系のバージョン
-- 非圧縮性・定常計算用のケース
-- `U`, `p`, `phiE`, `rho` の初期条件・境界条件
+- OpenFOAM v2406, or a compatible OpenFOAM.com version
+- A case prepared for an incompressible steady-state calculation
+- Initial and boundary conditions for `U`, `p`, `phiE`, and `rho`
 
-## コンパイル方法
+## Build
 
-OpenFOAM の環境を読み込んでから、このリポジトリのディレクトリで `wmake` を実行します。
+Load your OpenFOAM environment, then run `wmake` in this repository directory.
 
 ```bash
 cd simpleEFFoam
 wmake
 ```
 
-コンパイルに成功すると、次の実行ファイルが作成されます。
+After a successful build, the executable is created at:
 
 ```bash
 $FOAM_USER_APPBIN/simpleEFFoam
 ```
 
-## ケースでの使い方
+## Case Setup
 
-`system/controlDict` の `application` を次のように設定します。
+Set the application in `system/controlDict` as follows:
 
 ```foam
 application     simpleEFFoam;
 ```
 
-`0/` ディレクトリには、少なくとも次の場を用意してください。
+The `0/` directory should contain at least the following fields:
 
 - `U`
 - `p`
 - `phiE`
 - `rho`
 
-`E` と `phiEF` はソルバーが計算・出力します。ファイルが存在する場合は読み込めますが、
-基本的には `phiE` から計算されます。
+The solver calculates and writes `E` and `phiEF`. These fields can be read if
+the files already exist, but they are normally calculated from `phiE` during the
+solution.
 
-`constant/physicalProperties` には、少なくとも次の物性値を設定します。
+The `constant/physicalProperties` dictionary should define at least the
+following properties:
 
 ```foam
 epsilon0    epsilon0 [ -1 -3 4 0 0 2 0 ] 8.8541878128e-12;
-k           k        [ -1 0 2 0 0 1 0 ]   <イオン移動度>;
-T           T        [ 0 0 0 1 0 0 0 ]     <温度>;
-rho0        rho0     [ 1 -3 0 0 0 0 0 ]    <流体密度>;
-nu          nu       [ 0 2 -1 0 0 0 0 ]    <動粘度>;
+k           k        [ -1 0 2 0 0 1 0 ]   <ion_mobility>;
+T           T        [ 0 0 0 1 0 0 0 ]     <temperature>;
+rho0        rho0     [ 1 -3 0 0 0 0 0 ]    <fluid_density>;
+nu          nu       [ 0 2 -1 0 0 0 0 ]    <kinematic_viscosity>;
 ```
 
-`system/fvSchemes` と `system/fvSolution` には、`p`, `U`, `phiE`, `rho`
-に対する離散化スキーム、線形ソルバー、緩和係数を設定してください。
+Set appropriate discretization schemes, linear solvers, and relaxation factors
+for `p`, `U`, `phiE`, and `rho` in `system/fvSchemes` and
+`system/fvSolution`.
 
-ケースディレクトリで次を実行します。
+Run the solver from the case directory:
 
 ```bash
 simpleEFFoam
 ```
 
-## メッシュに関する重要な注意
+## Important Mesh Notes
 
-OpenFOAM の電磁場計算では、メッシュ形状が計算結果に強く影響します。
-特にワイヤー電極などの円形電極の周りでは、電極形状に沿った O-grid を使うべきです。
+Electric-field calculations in OpenFOAM are strongly affected by the mesh
+topology. Around circular electrodes such as wires, an O-grid mesh should be
+used so that the mesh follows the electrode shape.
 
-円形電極の周囲を `cartesianMesh` などの直交格子系メッシュで作成すると、電場や空間電荷分布が
-非現実的になったり、計算が発散したりする場合があります。
+If a circular electrode is meshed with a Cartesian-style mesh generator such as
+`cartesianMesh`, the electric field and space charge distribution may become
+non-physical, or the calculation may diverge.
 
-## `rho` が振動する場合
+## When `rho` Oscillates
 
-計算条件によっては、空間電荷密度 `rho` が振動することがあります。
+Depending on the calculation conditions, the space charge density `rho` may
+oscillate.
 
-これは、電場が強い領域で空間電荷が隣接セルを飛び越すような数値挙動になるためです。
-非定常の流体計算で Courant 数が 1 未満になるように時間刻みを調整するのと似た問題です。
+This can happen when the electric field is strong enough that the space charge
+effectively jumps over neighboring cells. This is similar in spirit to why
+transient flow simulations control the time step so that the Courant number
+remains below 1.
 
-このような場合は、`system/fvSolution` で `rho` の緩和係数を `0.1` 以下にすると、
-より正確に計算できる可能性が高くなります。ただし、収束までの時間は長くなります。
+If this oscillation occurs, reducing the relaxation factor for `rho` in
+`system/fvSolution` to `0.1` or smaller often improves stability and accuracy.
+However, convergence will become slower.
 
-例:
+Example:
 
 ```foam
 relaxationFactors
@@ -119,13 +133,15 @@ relaxationFactors
 }
 ```
 
-## 制限
+## Limitations
 
-- 定常計算のみ対応しています。
-- メッシュ品質、特に電極周りのトポロジーに強く依存します。
-- `phiE` と `rho` の境界条件は、計算対象に合わせて物理的に妥当な値を設定してください。
+- Only steady-state calculations are supported.
+- Results are highly sensitive to mesh quality, especially the mesh topology
+  around electrodes.
+- Physically appropriate boundary conditions must be supplied for `phiE` and
+  `rho`.
 
-## ライセンス
+## License
 
-このソルバーは OpenFOAM のソルバーコードを元にしています。各ソースファイルには
-OpenFOAM の GPL ライセンスヘッダーが残されています。
+This solver is derived from OpenFOAM solver code. The source files retain the
+OpenFOAM GPL license headers.
