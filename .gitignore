@@ -1,0 +1,15 @@
+# OpenFOAM build outputs
+Make/*/
+*.o
+*.dep
+lnInclude/
+platforms/
+
+# Common run outputs if cases are added later
+log.*
+postProcessing/
+processor*/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
