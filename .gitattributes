@@ -1,0 +1,7 @@
+* text=auto
+*.C text eol=lf
+*.H text eol=lf
+Make/files text eol=lf
+Make/options text eol=lf
+*.md text eol=lf
+*.foam text eol=lf
