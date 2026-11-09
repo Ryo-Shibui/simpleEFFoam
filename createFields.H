@@ -1,3 +1,8 @@
+const Switch ionCalculation
+(
+    simple.dict().lookupOrDefault<Switch>("ionCalculation", false)
+);
+
 Info<< "Reading physicalProperties\n" << endl;
 
 IOdictionary physicalProperties
@@ -21,9 +26,9 @@ dimensionedScalar epsilon0
 
 dimensionedScalar k
 (
-    "k",
-    dimensionSet(-1, 0, 2, 0, 0, 1, 0),
-    physicalProperties
+    ionCalculation
+  ? dimensionedScalar("k", dimensionSet(-1, 0, 2, 0, 0, 1, 0), 0)
+  : dimensionedScalar("k", dimensionSet(-1, 0, 2, 0, 0, 1, 0), physicalProperties)
 );
 
 dimensionedScalar T
@@ -108,20 +113,31 @@ volVectorField E
 );
 
 
-Info<< "Reading field rho\n" << endl;
-volScalarField rho
-(
-    IOobject
-    (
-        "rho",
-        runTime.timeName(),
-        mesh,
-        IOobject::MUST_READ,
-        IOobject::AUTO_WRITE
-    ),
-    mesh
-);
+autoPtr<BipolarIons> ions;
+if (ionCalculation)
+{
+    Info<< "Reading positive and negative ion number densities nP and nN\n" << endl;
+    ions.reset(new BipolarIons(mesh, physicalProperties));
+}
+else
+{
+    Info<< "Reading field rho\n" << endl;
+}
 
+const IOobject rhoIO
+(
+    "rho",
+    runTime.timeName(),
+    mesh,
+    ionCalculation ? IOobject::NO_READ : IOobject::MUST_READ,
+    IOobject::AUTO_WRITE
+);
+autoPtr<volScalarField> rhoStorage
+(
+    ionCalculation
+  ? new volScalarField(rhoIO, pc::e*(ions->nP - ions->nN))
+  : new volScalarField(rhoIO, mesh)
+);
 
 
 Info<< "Reading/calculating face flux field of electric field phiEF\n" << endl; 
@@ -132,7 +148,7 @@ surfaceScalarField phiEF
        "phiEF",
         runTime.timeName(),
         mesh,
-        IOobject::READ_IF_PRESENT,
+        ionCalculation ? IOobject::NO_READ : IOobject::READ_IF_PRESENT,
         IOobject::AUTO_WRITE
     ),
  	fvc::flux(E)

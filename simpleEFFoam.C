@@ -69,6 +69,7 @@ Description
 #include "simpleControl.H"
 #include "fvOptions.H"
 #include "physicalConstants.H"
+#include "BipolarIons.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -89,7 +90,15 @@ int main(int argc, char *argv[])
     #include "createFields.H"
     #include "initContinuityErrs.H"
 
+    volScalarField& rho = rhoStorage();
     turbulence->validate();
+
+    if (ionCalculation)
+    {
+        // Start the ion solve from a potential consistent with the initial charge.
+        solve(fvm::laplacian(phiE) + rho/pc::epsilon0);
+        phiEF = -fvc::snGrad(phiE)*mesh.magSf();
+    }
 
     // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -99,12 +108,15 @@ int main(int argc, char *argv[])
     {
         Info<< "Time = " << runTime.timeName() << nl << endl;
 
+        if (ionCalculation)
+        {
+            ions->solve(phi, phiEF);
+            rho = pc::e*(ions->nP - ions->nN);
+        }
+
         // --- Poisson's equation
-		solve
-		(
-		    fvm::laplacian(phiE) + rho/pc::epsilon0
-		);
-		E = (-1.0)*fvc::grad(phiE);
+        solve(fvm::laplacian(phiE) + rho/pc::epsilon0);
+        E = -fvc::grad(phiE);
 
         // --- Pressure-velocity SIMPLE corrector
         {
@@ -112,17 +124,24 @@ int main(int argc, char *argv[])
             #include "pEqn.H"
         }
 
-        // --- Charge conservation
-        phiEF = fvc::flux(E);
-		fvScalarMatrix rhoEqn
-		(
-			fvm::div(phi,rho) 
-			+ fvm::div(k*phiEF,rho)
-			- fvm::laplacian(k*pc::kb*T/pc::e,rho)
-		);
+        if (ionCalculation)
+        {
+            phiEF = -fvc::snGrad(phiE)*mesh.magSf();
+        }
+        else
+        {
+            // --- Single-carrier charge conservation
+            phiEF = fvc::flux(E);
+            fvScalarMatrix rhoEqn
+            (
+                fvm::div(phi, rho)
+              + fvm::div(k*phiEF, rho)
+              - fvm::laplacian(k*pc::kb*T/pc::e, rho)
+            );
 
-        rhoEqn.relax();
-		rhoEqn.solve(); 
+            rhoEqn.relax();
+            rhoEqn.solve();
+        }
 
         laminarTransport.correct();
         turbulence->correct();
